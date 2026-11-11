@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title>Mapa Geológico y de amenazas de la plancha (Lab8_2232292)</title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/multi-style-layer.js"></script>
+        <script src="js/leaflet-svg-shape-markers.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="data/geologiaplancha146final_5.js"></script>
+        <script src="data/Datos_estacion_6.js"></script>
+        <script src="data/Falla_Geologica_7.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+            highlightLayer.openPopup();
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        })
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/qgis2web/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    var img = popup._contentNode.querySelector('td img');
+                    if (img) {
+                        // If already loaded (cache), update immediately
+                        if (img.complete && img.naturalHeight > 0) {
+                            popup.update();
+                        } else {
+                            img.addEventListener('load', function() {
+                                popup.update();
+                            });
+                            img.addEventListener('error', function() {
+                                popup.update();
+                            });
+                        }
+                    }
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var title = new L.Control({'position':'topleft'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>Mapa Geológico y de amenazas de la plancha (Lab8_2232292)</h2>';
+        };
+        title.addTo(map);
+        var abstract = new L.Control({'position':'topleft'});
+        abstract.onAdd = function (map) {
+            this._div = L.DomUtil.create('div',
+            'leaflet-control abstract');
+            this._div.id = 'abstract'
+
+                abstract.show();
+                return this._div;
+            };
+            abstract.show = function () {
+                this._div.classList.remove("abstract");
+                this._div.classList.add("abstractUncollapsed");
+                this._div.innerHTML = 'Mapa de amenazas de la plancha 146 <br />Medellín <br />Escala 1:100.000';
+        };
+        abstract.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+            if (bounds_group.getLayers().length) {
+                map.fitBounds(bounds_group.getBounds());
+            }
+            map.setMaxBounds(map.getBounds());
+            map.setMinZoom(map.getZoom());
+        }
+        map.createPane('pane_NationalGeographicWorldMap_0');
+        map.getPane('pane_NationalGeographicWorldMap_0').style.zIndex = 400;
+        var layer_NationalGeographicWorldMap_0 = L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}', {
+            pane: 'pane_NationalGeographicWorldMap_0',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+        });
+        layer_NationalGeographicWorldMap_0;
+        map.addLayer(layer_NationalGeographicWorldMap_0);
+        map.createPane('pane_precipitacin_1');
+        map.getPane('pane_precipitacin_1').style.zIndex = 401;
+        var img_precipitacin_1 = 'data/precipitacin_1.png';
+        var img_bounds_precipitacin_1 = [[6.038979319689335,-75.975891214205],[6.403404019332792,-75.56725283438762]];
+        var layer_precipitacin_1 = new L.imageOverlay(img_precipitacin_1,
+                                              img_bounds_precipitacin_1,
+                                              {pane: 'pane_precipitacin_1'});
+        bounds_group.addLayer(layer_precipitacin_1);
+        map.addLayer(layer_precipitacin_1);
+        map.createPane('pane_Cobertura_reclasificada_2');
+        map.getPane('pane_Cobertura_reclasificada_2').style.zIndex = 402;
+        var img_Cobertura_reclasificada_2 = 'data/Cobertura_reclasificada_2.png';
+        var img_bounds_Cobertura_reclasificada_2 = [[6.038911825383777,-75.97624502742984],[6.403611956612011,-75.56679223257359]];
+        var layer_Cobertura_reclasificada_2 = new L.imageOverlay(img_Cobertura_reclasificada_2,
+                                              img_bounds_Cobertura_reclasificada_2,
+                                              {pane: 'pane_Cobertura_reclasificada_2'});
+        bounds_group.addLayer(layer_Cobertura_reclasificada_2);
+        map.addLayer(layer_Cobertura_reclasificada_2);
+        map.createPane('pane_Pendiente_3');
+        map.getPane('pane_Pendiente_3').style.zIndex = 403;
+        var img_Pendiente_3 = 'data/Pendiente_3.png';
+        var img_bounds_Pendiente_3 = [[6.039127011494506,-75.97592159584812],[6.4033542280391025,-75.56720769969482]];
+        var layer_Pendiente_3 = new L.imageOverlay(img_Pendiente_3,
+                                              img_bounds_Pendiente_3,
+                                              {pane: 'pane_Pendiente_3'});
+        bounds_group.addLayer(layer_Pendiente_3);
+        map.addLayer(layer_Pendiente_3);
+        map.createPane('pane_SusceptiblidadMovimientoenMasa_4');
+        map.getPane('pane_SusceptiblidadMovimientoenMasa_4').style.zIndex = 404;
+        var img_SusceptiblidadMovimientoenMasa_4 = 'data/SusceptiblidadMovimientoenMasa_4.png';
+        var img_bounds_SusceptiblidadMovimientoenMasa_4 = [[6.038911825413926,-75.97624502742516],[6.40361195664217,-75.5667922325689]];
+        var layer_SusceptiblidadMovimientoenMasa_4 = new L.imageOverlay(img_SusceptiblidadMovimientoenMasa_4,
+                                              img_bounds_SusceptiblidadMovimientoenMasa_4,
+                                              {pane: 'pane_SusceptiblidadMovimientoenMasa_4'});
+        bounds_group.addLayer(layer_SusceptiblidadMovimientoenMasa_4);
+        map.addLayer(layer_SusceptiblidadMovimientoenMasa_4);
+        function pop_geologiaplancha146final_5(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Simbolo</th>\
+                        <td>' + (feature.properties['Simbolo'] !== null ? autolinker.link(String(feature.properties['Simbolo']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_geologiaplancha146final_5_0(feature) {
+            switch(String(feature.properties['Simbolo'])) {
+                case 'Jdp':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(228,129,179,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Jgr':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,128,166,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Jus':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,128,191,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kaau':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(179,255,102,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kdha':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,204,230,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kdhb':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,204,219,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kdhs':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,186,205,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kdhsc':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,186,186,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kib':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(128,255,140,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kida':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,153,194,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kisq':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,255,51,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Kivq':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(233,150,191,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ksga':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,230,237,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ksta':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,230,245,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ksvb':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,179,232,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ksvbc':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,153,204,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Pbsd':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(201,179,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCA(?)um':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(188,151,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCAa':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(198,172,159,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCAac':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(188,158,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCAes':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(207,181,175,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCAnc':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(198,166,159,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'PCAnm':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,196,191,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Pei':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(148,102,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Peni':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(130,77,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Pes':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(166,128,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Pev':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(184,153,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Pgnp':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(219,204,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Qar':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(230,230,230,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Qd':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(191,191,191,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Qt':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(166,166,166,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Tadh':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(250,209,225,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Toi':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(242,242,13,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Tom':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(246,246,85,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Tos':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(250,250,158,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'TRa':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(235,71,104,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Tsc':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,254,205,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Tvc':
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,224,179,1.0)',
+                interactive: true,
+            }
+                    break;
+                default:
+                    return {
+                pane: 'pane_geologiaplancha146final_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,123,35,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_geologiaplancha146final_5');
+        map.getPane('pane_geologiaplancha146final_5').style.zIndex = 405;
+        map.getPane('pane_geologiaplancha146final_5').style['mix-blend-mode'] = 'normal';
+        var layer_geologiaplancha146final_5 = new L.geoJson(json_geologiaplancha146final_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_geologiaplancha146final_5',
+            layerName: 'layer_geologiaplancha146final_5',
+            pane: 'pane_geologiaplancha146final_5',
+            onEachFeature: pop_geologiaplancha146final_5,
+            style: style_geologiaplancha146final_5_0,
+        });
+        bounds_group.addLayer(layer_geologiaplancha146final_5);
+        map.addLayer(layer_geologiaplancha146final_5);
+        function pop_Datos_estacion_6(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Buzamiento</th>\
+                        <td>' + (feature.properties['Buzamiento'] !== null ? autolinker.link(String(feature.properties['Buzamiento']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Datos_estacion_6_0() {
+            return {
+                pane: 'pane_Datos_estacion_6',
+                radius: 3.0,
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,0,0,1.0)',
+                interactive: true,
+            }
+        }
+        function style_Datos_estacion_6_1() {
+            return {
+                pane: 'pane_Datos_estacion_6',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,0,0,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_Datos_estacion_6');
+        map.getPane('pane_Datos_estacion_6').style.zIndex = 406;
+        map.getPane('pane_Datos_estacion_6').style['mix-blend-mode'] = 'normal';
+        var layer_Datos_estacion_6 = new L.geoJson.multiStyle(json_Datos_estacion_6, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Datos_estacion_6',
+            layerName: 'layer_Datos_estacion_6',
+            pane: 'pane_Datos_estacion_6',
+            onEachFeature: pop_Datos_estacion_6,
+            pointToLayers: [function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.shapeMarker(latlng, style_Datos_estacion_6_0(feature));
+            },function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.shapeMarker(latlng, style_Datos_estacion_6_1(feature));
+            },
+        ]});
+        bounds_group.addLayer(layer_Datos_estacion_6);
+        map.addLayer(layer_Datos_estacion_6);
+        function pop_Falla_Geologica_7(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Tipo</th>\
+                        <td>' + (feature.properties['Tipo'] !== null ? autolinker.link(String(feature.properties['Tipo']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Falla_Geologica_7_0(feature) {
+            switch(String(feature.properties['Tipo'])) {
+                case 'Definida':
+                    return {
+                pane: 'pane_Falla_Geologica_7',
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 1.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'Enterrada':
+                    return {
+                pane: 'pane_Falla_Geologica_7',
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '4.0,2.0',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 1.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'Inferida':
+                    return {
+                pane: 'pane_Falla_Geologica_7',
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '4.0,2.0',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 1.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_Falla_Geologica_7');
+        map.getPane('pane_Falla_Geologica_7').style.zIndex = 407;
+        map.getPane('pane_Falla_Geologica_7').style['mix-blend-mode'] = 'normal';
+        var layer_Falla_Geologica_7 = new L.geoJson(json_Falla_Geologica_7, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Falla_Geologica_7',
+            layerName: 'layer_Falla_Geologica_7',
+            pane: 'pane_Falla_Geologica_7',
+            onEachFeature: pop_Falla_Geologica_7,
+            style: style_Falla_Geologica_7_0,
+        });
+        bounds_group.addLayer(layer_Falla_Geologica_7);
+        map.addLayer(layer_Falla_Geologica_7);
+        var overlaysTree = [
+            {label: 'Falla_Geologica<br /><table><tr><td style="text-align: center;"><img src="legend/Falla_Geologica_7_Definida0.png" /></td><td>Definida</td></tr><tr><td style="text-align: center;"><img src="legend/Falla_Geologica_7_Enterrada1.png" /></td><td>Enterrada</td></tr><tr><td style="text-align: center;"><img src="legend/Falla_Geologica_7_Inferida2.png" /></td><td>Inferida</td></tr></table>', layer: layer_Falla_Geologica_7},
+            {label: '<img src="legend/Datos_estacion_6.png" /> Datos_estacion', layer: layer_Datos_estacion_6},
+            {label: 'geologiaplancha146final<br /><table><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Jdp0.png" /></td><td>Jdp</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Jgr1.png" /></td><td>Jgr</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Jus2.png" /></td><td>Jus</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kaau3.png" /></td><td>Kaau</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kdha4.png" /></td><td>Kdha</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kdhb5.png" /></td><td>Kdhb</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kdhs6.png" /></td><td>Kdhs</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kdhsc7.png" /></td><td>Kdhsc</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kib8.png" /></td><td>Kib</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kida9.png" /></td><td>Kida</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kisq10.png" /></td><td>Kisq</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Kivq11.png" /></td><td>Kivq</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Ksga12.png" /></td><td>Ksga</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Ksta13.png" /></td><td>Ksta</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Ksvb14.png" /></td><td>Ksvb</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Ksvbc15.png" /></td><td>Ksvbc</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Pbsd16.png" /></td><td>Pbsd</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAum17.png" /></td><td>PCA(?)um</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAa18.png" /></td><td>PCAa</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAac19.png" /></td><td>PCAac</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAes20.png" /></td><td>PCAes</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAnc21.png" /></td><td>PCAnc</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_PCAnm22.png" /></td><td>PCAnm</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Pei23.png" /></td><td>Pei</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Peni24.png" /></td><td>Peni</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Pes25.png" /></td><td>Pes</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Pev26.png" /></td><td>Pev</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Pgnp27.png" /></td><td>Pgnp</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Qar28.png" /></td><td>Qar</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Qd29.png" /></td><td>Qd</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Qt30.png" /></td><td>Qt</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Tadh31.png" /></td><td>Tadh</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Toi32.png" /></td><td>Toi</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Tom33.png" /></td><td>Tom</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Tos34.png" /></td><td>Tos</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_TRa35.png" /></td><td>TRa</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Tsc36.png" /></td><td>Tsc</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_Tvc37.png" /></td><td>Tvc</td></tr><tr><td style="text-align: center;"><img src="legend/geologiaplancha146final_5_38.png" /></td><td></td></tr></table>', layer: layer_geologiaplancha146final_5},
+            {label: "Susceptiblidad Movimiento en Masa", layer: layer_SusceptiblidadMovimientoenMasa_4},
+            {label: "Pendiente", layer: layer_Pendiente_3},
+            {label: "Cobertura_reclasificada", layer: layer_Cobertura_reclasificada_2},
+            {label: "precipitación", layer: layer_precipitacin_1},
+            {label: "National Geographic World Map", layer: layer_NationalGeographicWorldMap_0},]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        var i = 0;
+        layer_Datos_estacion_6.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['Buzamiento'] !== null?String('<div style="color: #323232; font-size: 10pt; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['Buzamiento']).replace(/\\n/g, '<br>') + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_Datos_estacion_6'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        L.ImageOverlay.include({
+            getBounds: function () {
+                return this._bounds;
+            }
+        });
+        resetLabels([layer_Datos_estacion_6]);
+        map.on("zoomend", function(){
+            resetLabels([layer_Datos_estacion_6]);
+        });
+        map.on("layeradd", function(){
+            resetLabels([layer_Datos_estacion_6]);
+        });
+        map.on("layerremove", function(){
+            resetLabels([layer_Datos_estacion_6]);
+        });
+        </script>        
+    </body>
+</html>
